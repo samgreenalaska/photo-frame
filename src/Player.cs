@@ -160,6 +160,14 @@ sealed class StackWindow : Window
 {
     const double DropMs = 900;
 
+    // WPF animates at the display's refresh rate, 144 Hz and up on many PCs,
+    // redrawing the whole scene each frame. 60 is smooth for a one-second drop.
+    static StackWindow()
+    {
+        Timeline.DesiredFrameRateProperty.OverrideMetadata(typeof(Timeline),
+            new FrameworkPropertyMetadata { DefaultValue = 60 });
+    }
+
     // Coverage grid: the drop that last covered each cell's centre. Each print
     // is placed so the pile together covers the whole screen.
     const int Cols = 32, Rows = 18, Candidates = 24;
@@ -330,12 +338,24 @@ sealed class StackWindow : Window
         shadow.Color = Colors.Black;
         shadow.Direction = 270;
         shadow.Opacity = 0.55;
+        shadow.ShadowDepth = 5;
+        shadow.BlurRadius = 22;
 
+        var print = new Border();
+        print.Background = new SolidColorBrush(Color.FromRgb(0xf5, 0xf2, 0xea));
+        print.Padding = new Thickness(border);
+        print.Child = image;
+        print.Effect = shadow;
+        // The print (photo, border and blurred shadow) is drawn once into a
+        // bitmap, and the drop only moves, turns, scales and fades that bitmap.
+        // Without it, every frame re-blurs the shadow: 4.3% average GPU at 3 s a
+        // photo against 0.9% with no shadow, measured on an RTX 4070 Ti. The
+        // cache sits on a wrapper because WPF applies an element's own Effect
+        // after its cache, so a cache on the print itself still blurs per frame.
+        // Nothing inside may animate, or the bitmap is redrawn every frame.
         var card = new Border();
-        card.Background = new SolidColorBrush(Color.FromRgb(0xf5, 0xf2, 0xea));
-        card.Padding = new Thickness(border);
-        card.Child = image;
-        card.Effect = shadow;
+        card.Child = print;
+        card.CacheMode = new BitmapCache();
         card.RenderTransformOrigin = new Point(0.5, 0.5);
         card.Opacity = 0;
         Canvas.SetLeft(card, place.Left);
@@ -369,14 +389,6 @@ sealed class StackWindow : Window
         rotate.BeginAnimation(RotateTransform.AngleProperty, r);
 
         card.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(DropMs * 0.35)));
-
-        // The shadow tightens as the print comes down onto the pile.
-        var depth = new DoubleAnimation(40, 5, drop);
-        depth.EasingFunction = fall;
-        shadow.BeginAnimation(DropShadowEffect.ShadowDepthProperty, depth);
-        var blur = new DoubleAnimation(70, 22, drop);
-        blur.EasingFunction = fall;
-        shadow.BeginAnimation(DropShadowEffect.BlurRadiusProperty, blur);
 
         // Cards already fading are still children, so count only live ones.
         int live = 0;
