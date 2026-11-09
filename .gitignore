@@ -1,0 +1,9 @@
+# Whitelist: everything is ignored, then only what should be public is allowed back.
+/*
+
+!/src/
+!/tools/
+!/build.cmd
+!/README.md
+!/LICENSE
+!/.gitignore
