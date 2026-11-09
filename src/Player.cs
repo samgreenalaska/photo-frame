@@ -11,7 +11,6 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
-using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 
@@ -334,32 +333,38 @@ sealed class StackWindow : Window
         image.Height = imgH;
         RenderOptions.SetBitmapScalingMode(image, BitmapScalingMode.HighQuality);
 
-        var shadow = new DropShadowEffect();
-        shadow.Color = Colors.Black;
-        shadow.Direction = 270;
-        shadow.Opacity = 0.55;
-        shadow.ShadowDepth = 5;
-        shadow.BlurRadius = 22;
-
         var print = new Border();
         print.Background = new SolidColorBrush(Color.FromRgb(0xf5, 0xf2, 0xea));
         print.Padding = new Thickness(border);
         print.Child = image;
-        print.Effect = shadow;
-        // The print (photo, border and blurred shadow) is drawn once into a
-        // bitmap, and the drop only moves, turns, scales and fades that bitmap.
-        // Without it, every frame re-blurs the shadow: 4.3% average GPU at 3 s a
-        // photo against 0.9% with no shadow, measured on an RTX 4070 Ti. The
-        // cache sits on a wrapper because WPF applies an element's own Effect
-        // after its cache, so a cache on the print itself still blurs per frame.
-        // Nothing inside may animate, or the bitmap is redrawn every frame.
+
+        // The shadow is a few translucent dark bands around the print, fading
+        // outward, not a blur effect. A DropShadowEffect re-blurs on every frame
+        // of a drop: 4.3% average GPU at 3 s a photo on an RTX 4070 Ti, against
+        // 0.9% with no shadow. Bands are plain rectangles and cost about nothing.
+        double band = Math.Max(1, Math.Round(border * 0.3));
+        UIElement inner = print;
+        foreach (byte alpha in new byte[] { 0x40, 0x24, 0x10 })
+        {
+            var b = new Border();
+            b.BorderBrush = new SolidColorBrush(Color.FromArgb(alpha, 0, 0, 0));
+            b.BorderThickness = new Thickness(band);
+            b.Child = inner;
+            inner = b;
+        }
+        double halo = 3 * band;
+
+        // Drawn once into a bitmap: the drop only moves, turns, scales and fades
+        // it, so the photo is not resampled each frame. Nothing inside may
+        // animate, or the bitmap is redrawn every frame.
         var card = new Border();
-        card.Child = print;
+        card.Child = inner;
         card.CacheMode = new BitmapCache();
         card.RenderTransformOrigin = new Point(0.5, 0.5);
         card.Opacity = 0;
-        Canvas.SetLeft(card, place.Left);
-        Canvas.SetTop(card, place.Top);
+        // Placement is for the print itself; the bands sit outside it.
+        Canvas.SetLeft(card, place.Left - halo);
+        Canvas.SetTop(card, place.Top - halo);
 
         var scale = new ScaleTransform();
         var rotate = new RotateTransform();
